@@ -166,13 +166,9 @@ export function createSSEStream(options = {}) {
         if (!parsed) continue;
 
         // For Ollama: done=true is the final chunk with finish_reason/usage, must translate
-        // For other formats: done=true is the [DONE] sentinel, skip
-        if (parsed && parsed.done && targetFormat !== FORMATS.OLLAMA) {
-          const output = "data: [DONE]\n\n";
-          reqLogger?.appendConvertedChunk?.(output);
-          controller.enqueue(sharedEncoder.encode(output));
-          continue;
-        }
+        // For other formats: done=true is NOT a sentinel — it carries usage/finish_reason that must be translated
+        // The [DONE] sentinel is only emitted by formatSSE() for OpenAI targets (see streamHelpers.js:106)
+        // Note: parsed.done=true here means the upstream provider signaled completion, not the [DONE] sentinel
 
         // Claude format - content
         if (parsed.delta?.text) {
