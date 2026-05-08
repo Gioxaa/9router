@@ -20,13 +20,13 @@ export async function POST(request) {
     // Get active provider connections
     const connections = await getProviderConnections({ isActive: true });
 
-    // Map connections
+    // Map connections - strip sensitive tokens from response
     const mappedConnections = connections.map(conn => ({
       provider: conn.provider,
       authType: conn.authType,
-      apiKey: conn.apiKey || null,
-      accessToken: conn.accessToken || null,
-      refreshToken: conn.refreshToken || null,
+      hasApiKey: !!conn.apiKey,
+      hasAccessToken: !!conn.accessToken,
+      hasRefreshToken: !!conn.refreshToken,
       projectId: conn.projectId || null,
       expiresAt: conn.expiresAt,
       priority: conn.priority,
