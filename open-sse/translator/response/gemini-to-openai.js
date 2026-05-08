@@ -66,7 +66,7 @@ export function geminiToOpenAIResponse(chunk, state) {
           const toolCallIndex = state.functionIndex++;
           
           const toolCall = {
-            id: `${fcName}-${Date.now()}-${toolCallIndex}`,
+            id: `toolcall_${fcName}_${toolCallIndex}`,
             index: toolCallIndex,
             type: "function",
             function: {
@@ -116,7 +116,7 @@ export function geminiToOpenAIResponse(chunk, state) {
         const toolCallIndex = state.functionIndex++;
         
         const toolCall = {
-          id: `${fcName}-${Date.now()}-${toolCallIndex}`,
+          id: `toolcall_${fcName}_${toolCallIndex}`,
           index: toolCallIndex,
           type: "function",
           function: {
@@ -182,8 +182,8 @@ export function geminiToOpenAIResponse(chunk, state) {
       if (candidatesTokens < 0) candidatesTokens = 0;
     }
     
-    // completion_tokens = candidatesTokenCount + thoughtsTokenCount (match Go code)
-    const completionTokens = candidatesTokens + thoughtsTokens;
+    // completion_tokens = candidatesTokenCount only (thoughts are in reasoning_tokens)
+    const completionTokens = candidatesTokens;
     
     state.usage = {
       prompt_tokens: promptTokens,

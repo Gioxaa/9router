@@ -105,9 +105,11 @@ function convertGeminiContent(content) {
     }
 
     if (part.functionResponse) {
+      // Look up the original tool_call ID from the state.toolCalls map
+      const originalId = state.toolCalls?.get(part.functionResponse.name);
       return {
         role: "tool",
-        tool_call_id: part.functionResponse.id || part.functionResponse.name,
+        tool_call_id: originalId || part.functionResponse.id || part.functionResponse.name,
         content: JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response || {})
       };
     }
