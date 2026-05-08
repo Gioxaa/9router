@@ -78,6 +78,24 @@ export async function handleFetch(request) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid URL format");
   }
 
+  // SSRF blocklist check
+  const blockedPatterns = [
+    /^localhost$/i,
+    /^127\.\d+\.\d+\.\d+$/,
+    /^0\.0\.0\.0$/i,
+    /^::1$/i,
+    /^169\.254\.169\.254$/i,
+    /^169\.254\.170\.2$/i,
+    /^metadata\.google\.internal$/i,
+  ];
+  const targetHostname = new URL(targetUrl).hostname;
+  for (const pattern of blockedPatterns) {
+    if (pattern.test(targetHostname)) {
+      log.warn("FETCH", "Blocked internal address", { url: targetUrl, hostname: targetHostname });
+      return errorResponse(HTTP_STATUS.FORBIDDEN, "Request to internal address not allowed");
+    }
+  }
+
   // Combo expansion: providerInput may be a combo name → run fallback/round-robin across providers
   const combos = await getCombos();
   const comboModels = getComboModelsFromData(providerInput, combos);
