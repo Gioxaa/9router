@@ -37,7 +37,11 @@ function addToCounter(target, key, values) {
   target[key].promptTokens += values.promptTokens || 0;
   target[key].completionTokens += values.completionTokens || 0;
   target[key].cost += values.cost || 0;
-  if (values.meta) Object.assign(target[key], values.meta);
+  // D-6: Store meta separately to avoid corrupting counter structure
+  if (values.meta) {
+    if (!target[key]._meta) target[key]._meta = {};
+    target[key]._meta = { ...target[key]._meta, ...values.meta };
+  }
 }
 
 function aggregateEntryToDailySummary(dailySummary, entry) {
@@ -80,6 +84,8 @@ function aggregateEntryToDailySummary(dailySummary, entry) {
 function migrateHistoryToDailySummary(db) {
   const history = db.data.history || [];
   if (!history.length) return false;
+  // D-9: Only migrate if dailySummary is empty (preserve existing data)
+  if (Object.keys(db.data.dailySummary || {}).length > 0) return false;
   db.data.dailySummary = {};
   for (const entry of history) {
     aggregateEntryToDailySummary(db.data.dailySummary, entry);
@@ -115,6 +121,16 @@ if (!global._pendingTimers) global._pendingTimers = {};
 const pendingTimers = global._pendingTimers;
 
 const PENDING_TIMEOUT_MS = 60 * 1000; // 1 minute
+
+// D-1: Write mutex to prevent concurrent writes
+let writeMutex = Promise.resolve();
+async function safeWriteWithLock(db) {
+  await writeMutex;
+  writeMutex = writeMutex.then(async () => {
+    await db.write();
+  });
+  return writeMutex;
+}
 
 // In-memory ring buffer for recent requests (avoids disk I/O on every SSE emit)
 const RING_CAP = 50;
@@ -306,9 +322,10 @@ export async function saveRequestUsage(entry) {
   try {
     const db = await getUsageDb();
 
-    // Add timestamp if not present
-    if (!entry.timestamp) {
-      entry.timestamp = new Date().toISOString();
+    // D-10: Clone the entry before mutating to avoid mutating caller's object
+    const entryCopy = { ...entry };
+    if (!entryCopy.timestamp) {
+      entryCopy.timestamp = new Date().toISOString();
     }
 
     // Ensure history array exists
@@ -319,21 +336,21 @@ export async function saveRequestUsage(entry) {
       db.data.totalRequestsLifetime = db.data.history.length;
     }
 
-    const entryCost = await calculateCost(entry.provider, entry.model, entry.tokens);
-    entry.cost = entryCost;
-    db.data.history.push(entry);
+    const entryCost = await calculateCost(entryCopy.provider, entryCopy.model, entryCopy.tokens);
+    entryCopy.cost = entryCost;
+    db.data.history.push(entryCopy);
     db.data.totalRequestsLifetime += 1;
 
     if (!db.data.dailySummary) db.data.dailySummary = {};
-    aggregateEntryToDailySummary(db.data.dailySummary, entry);
+    aggregateEntryToDailySummary(db.data.dailySummary, entryCopy);
 
     const MAX_HISTORY = 2000;
     if (db.data.history.length > MAX_HISTORY) {
       db.data.history.splice(0, db.data.history.length - MAX_HISTORY);
     }
 
-    await db.write();
-    pushToRing(entry);
+    await safeWriteWithLock(db);
+    pushToRing(entryCopy);
     statsEmitter.emit("update");
   } catch (error) {
     console.error("Failed to save usage stats:", error);
@@ -367,7 +384,9 @@ export async function getUsageHistory(filter = {}) {
     history = history.filter(h => new Date(h.timestamp).getTime() <= end);
   }
 
-  return history;
+  // D-5: Limit results to prevent unbounded return
+  const limit = 100;
+  return history.slice(0, limit);
 }
 
 /**
