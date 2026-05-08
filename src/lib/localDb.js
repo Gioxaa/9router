@@ -400,10 +400,10 @@ export async function createProviderConnection(data) {
     }
   }
 
-  let connectionPriority = data.priority;
+  let connectionPriority = Number(data.priority) || 0;
   if (!connectionPriority) {
     const providerConnections = db.data.providerConnections.filter(c => c.provider === data.provider);
-    const maxPriority = providerConnections.reduce((max, c) => Math.max(max, c.priority || 0), 0);
+    const maxPriority = providerConnections.reduce((max, c) => Math.max(max, Number(c.priority) || 0), 0);
     connectionPriority = maxPriority + 1;
   }
 
