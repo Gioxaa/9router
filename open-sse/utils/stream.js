@@ -250,7 +250,9 @@ export function createSSEStream(options = {}) {
 
             const output = formatSSE(item, sourceFormat);
             reqLogger?.appendConvertedChunk?.(output);
-            controller.enqueue(sharedEncoder.encode(output));
+            if (controller.desiredSize > 0) {
+              controller.enqueue(sharedEncoder.encode(output));
+            }
           }
         }
       }
