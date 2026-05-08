@@ -31,6 +31,23 @@ export async function PUT(request) {
       return NextResponse.json({ error: `No active connection found for provider: ${provider}` }, { status: 404 });
     }
 
+    // Validate credentials before saving
+    if (credentials.accessToken !== undefined) {
+      if (typeof credentials.accessToken !== "string" || credentials.accessToken.trim() === "") {
+        return NextResponse.json({ error: "Invalid accessToken" }, { status: 400 });
+      }
+    }
+    if (credentials.refreshToken !== undefined) {
+      if (typeof credentials.refreshToken !== "string" || credentials.refreshToken.trim() === "") {
+        return NextResponse.json({ error: "Invalid refreshToken" }, { status: 400 });
+      }
+    }
+    if (credentials.expiresIn !== undefined) {
+      if (typeof credentials.expiresIn !== "number" || credentials.expiresIn <= 0) {
+        return NextResponse.json({ error: "Invalid expiresIn" }, { status: 400 });
+      }
+    }
+
     // Update credentials
     const updateData = {};
     if (credentials.accessToken) {
