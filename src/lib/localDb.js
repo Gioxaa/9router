@@ -179,7 +179,12 @@ export async function getDb() {
     await safeRead(dbInstance);
   } catch (error) {
     if (error instanceof SyntaxError) {
-      console.warn('[DB] Corrupt JSON detected, resetting to defaults...');
+      console.warn('[DB] Corrupt JSON detected, backing up and resetting...');
+      const corruptBackup = DB_FILE + '.corrupt.' + Date.now() + '.json';
+      try {
+        fs.copyFileSync(DB_FILE, corruptBackup);
+        console.warn('[DB] Backed up corrupt JSON to:', corruptBackup);
+      } catch (_) {}
       dbInstance.data = cloneDefaultData();
       await safeWrite(dbInstance);
     } else {
