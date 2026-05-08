@@ -157,10 +157,13 @@ function convertClaudeMessage(msg) {
           if (typeof block.content === "string") {
             resultContent = block.content;
           } else if (Array.isArray(block.content)) {
-            resultContent = block.content
-              .filter(c => c.type === "text")
-              .map(c => c.text)
-              .join("\n") || JSON.stringify(block.content);
+            const textParts = block.content.filter(c => c.type === "text");
+            if (textParts.length > 0) {
+              resultContent = textParts.map(c => c.text).join("\n");
+            } else {
+              // No text blocks - stringify the non-text content
+              resultContent = JSON.stringify(block.content);
+            }
           } else if (block.content) {
             resultContent = JSON.stringify(block.content);
           }
