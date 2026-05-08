@@ -45,8 +45,9 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
     }
   }
 
-  // Default: transient cooldown for any unmatched error
-  return { shouldFallback: true, cooldownMs: TRANSIENT_COOLDOWN_MS };
+  // Default: only fallback for potentially transient errors (network/timeout),
+  // not for client errors (400/422) or server errors (500) that won't be fixed by retry
+  return { shouldFallback: false, cooldownMs: 0 };
 }
 
 /**

@@ -73,6 +73,9 @@ export const ERROR_RULES = [
   { status: 403, cooldownMs: COOLDOWN.long },
   { status: 404, cooldownMs: COOLDOWN.long },
   { status: 429, backoff: true },
+  { status: 503, cooldownMs: 30000 },  // 30s transient overload
+  { status: 502, cooldownMs: 10000 },  // 10s bad gateway
+  { status: 504, cooldownMs: 10000 },  // 10s gateway timeout
 ];
 
 // Backward compat: COOLDOWN_MS object (used by index.js re-export)

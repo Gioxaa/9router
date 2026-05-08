@@ -11,6 +11,12 @@ import { unavailableResponse } from "../utils/error.js";
  */
 const comboRotationState = new Map();
 
+/**
+ * Mutex for thread-safe rotation state updates (prevents race conditions)
+ * @type {Promise<void>}
+ */
+let rotationMutex = Promise.resolve();
+
 function normalizeStickyLimit(stickyLimit) {
   const parsed = Number.parseInt(stickyLimit, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
@@ -40,28 +46,34 @@ export function getRotatedModels(models, comboName, strategy, stickyLimit = 1) {
 
   const rotationKey = comboName || "__default__";
   const normalizedStickyLimit = normalizeStickyLimit(stickyLimit);
-  const existingState = comboRotationState.get(rotationKey);
-  const state = typeof existingState === "number"
-    ? { index: existingState, consecutiveUseCount: 0 }
-    : (existingState || { index: 0, consecutiveUseCount: 0 });
 
-  const currentIndex = state.index % models.length;
-  const rotatedModels = rotateModelsFromIndex(models, currentIndex);
-  const nextUseCount = state.consecutiveUseCount + 1;
+  // Mutex lock ensures read-modify-write is atomic (prevents race condition)
+  rotationMutex = rotationMutex.then(async () => {
+    const existingState = comboRotationState.get(rotationKey);
+    const state = typeof existingState === "number"
+      ? { index: existingState, consecutiveUseCount: 0 }
+      : (existingState || { index: 0, consecutiveUseCount: 0 });
 
-  if (nextUseCount >= normalizedStickyLimit) {
-    comboRotationState.set(rotationKey, {
-      index: (currentIndex + 1) % models.length,
-      consecutiveUseCount: 0,
-    });
-  } else {
-    comboRotationState.set(rotationKey, {
-      index: currentIndex,
-      consecutiveUseCount: nextUseCount,
-    });
-  }
+    const currentIndex = state.index % models.length;
+    const rotatedModels = rotateModelsFromIndex(models, currentIndex);
+    const nextUseCount = state.consecutiveUseCount + 1;
 
-  return rotatedModels;
+    if (nextUseCount >= normalizedStickyLimit) {
+      comboRotationState.set(rotationKey, {
+        index: (currentIndex + 1) % models.length,
+        consecutiveUseCount: 0,
+      });
+    } else {
+      comboRotationState.set(rotationKey, {
+        index: currentIndex,
+        consecutiveUseCount: nextUseCount,
+      });
+    }
+
+    return rotatedModels;
+  });
+
+  return rotationMutex;
 }
 
 /**
@@ -191,8 +203,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
   }
 
   log.warn("COMBO", `All models failed | ${msg}`);
-  return new Response(
-    JSON.stringify({ error: { message: msg } }),
-    { status, headers: { "Content-Type": "application/json" } }
-  );
+  const retryAfterSec = 30;
+  const retryAfterISO = new Date(Date.now() + retryAfterSec * 1000).toISOString();
+  return unavailableResponse(status, msg, retryAfterISO, formatRetryAfter(retryAfterISO));
 }
