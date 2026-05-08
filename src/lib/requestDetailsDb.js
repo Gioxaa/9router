@@ -71,6 +71,8 @@ async function getObservabilityConfig() {
 let writeBuffer = [];
 let flushTimer = null;
 let isFlushing = false;
+// D-2: Mutex to prevent concurrent flushes
+let flushMutex = Promise.resolve();
 
 function safeJsonStringify(obj, maxSize) {
   try {
@@ -104,74 +106,82 @@ function generateDetailId(model) {
 }
 
 async function flushToDatabase() {
+  await flushMutex;
   if (isFlushing || writeBuffer.length === 0) return;
+  flushMutex = flushMutex.then(async () => {
+    isFlushing = true;
+    try {
+      const itemsToSave = [...writeBuffer];
+      writeBuffer = [];
 
-  isFlushing = true;
-  try {
-    const itemsToSave = [...writeBuffer];
-    writeBuffer = [];
+      const db = await getDb();
+      const config = await getObservabilityConfig();
 
-    const db = await getDb();
-    const config = await getObservabilityConfig();
+      for (const item of itemsToSave) {
+        if (!item.id) item.id = generateDetailId(item.model);
+        if (!item.timestamp) item.timestamp = new Date().toISOString();
+        if (item.request?.headers) item.request.headers = sanitizeHeaders(item.request.headers);
 
-    for (const item of itemsToSave) {
-      if (!item.id) item.id = generateDetailId(item.model);
-      if (!item.timestamp) item.timestamp = new Date().toISOString();
-      if (item.request?.headers) item.request.headers = sanitizeHeaders(item.request.headers);
+        // Serialize large fields
+        const record = {
+          id: item.id,
+          provider: item.provider || null,
+          model: item.model || null,
+          connectionId: item.connectionId || null,
+          timestamp: item.timestamp,
+          status: item.status || null,
+          latency: item.latency || {},
+          tokens: item.tokens || {},
+          request: item.request || {},
+          providerRequest: item.providerRequest || {},
+          providerResponse: item.providerResponse || {},
+          response: item.response || {},
+        };
 
-      // Serialize large fields
-      const record = {
-        id: item.id,
-        provider: item.provider || null,
-        model: item.model || null,
-        connectionId: item.connectionId || null,
-        timestamp: item.timestamp,
-        status: item.status || null,
-        latency: item.latency || {},
-        tokens: item.tokens || {},
-        request: item.request || {},
-        providerRequest: item.providerRequest || {},
-        providerResponse: item.providerResponse || {},
-        response: item.response || {},
-      };
+        // Truncate oversized JSON fields
+        const maxSize = config.maxJsonSize;
+        for (const field of ["request", "providerRequest", "providerResponse", "response"]) {
+          const str = JSON.stringify(record[field]);
+          if (str.length > maxSize) {
+            record[field] = { _truncated: true, _originalSize: str.length, _preview: str.substring(0, 200) };
+          }
+        }
 
-      // Truncate oversized JSON fields
-      const maxSize = config.maxJsonSize;
-      for (const field of ["request", "providerRequest", "providerResponse", "response"]) {
-        const str = JSON.stringify(record[field]);
-        if (str.length > maxSize) {
-          record[field] = { _truncated: true, _originalSize: str.length, _preview: str.substring(0, 200) };
+        // Upsert: replace existing record with same id
+        const idx = db.data.records.findIndex(r => r.id === record.id);
+        if (idx !== -1) {
+          db.data.records[idx] = record;
+        } else {
+          db.data.records.push(record);
         }
       }
 
-      // Upsert: replace existing record with same id
-      const idx = db.data.records.findIndex(r => r.id === record.id);
-      if (idx !== -1) {
-        db.data.records[idx] = record;
-      } else {
-        db.data.records.push(record);
+      // D-12: Only keep top N records before sorting to reduce sort cost
+      if (db.data.records.length > config.maxRecords * 2) {
+        db.data.records = db.data.records.slice(0, config.maxRecords * 2);
       }
-    }
 
-    // Keep only latest maxRecords (sorted by timestamp desc)
-    db.data.records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    if (db.data.records.length > config.maxRecords) {
-      db.data.records = db.data.records.slice(0, config.maxRecords);
-    }
+      // Keep only latest maxRecords (sorted by timestamp desc)
+      db.data.records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      if (db.data.records.length > config.maxRecords) {
+        db.data.records = db.data.records.slice(0, config.maxRecords);
+      }
 
-    // Shrink records until total serialized size is within safe limit
-    while (db.data.records.length > 1) {
-      const totalSize = Buffer.byteLength(JSON.stringify(db.data), "utf8");
-      if (totalSize <= MAX_TOTAL_DB_SIZE) break;
-      db.data.records = db.data.records.slice(0, Math.floor(db.data.records.length / 2));
-    }
+      // Shrink records until total serialized size is within safe limit
+      while (db.data.records.length > 1) {
+        const totalSize = Buffer.byteLength(JSON.stringify(db.data), "utf8");
+        if (totalSize <= MAX_TOTAL_DB_SIZE) break;
+        db.data.records = db.data.records.slice(0, Math.floor(db.data.records.length / 2));
+      }
 
-    await db.write();
-  } catch (error) {
-    console.error("[requestDetailsDb] Batch write failed:", error);
-  } finally {
-    isFlushing = false;
-  }
+      await db.write();
+    } catch (error) {
+      console.error("[requestDetailsDb] Batch write failed:", error);
+    } finally {
+      isFlushing = false;
+    }
+  });
+  return flushMutex;
 }
 
 export async function saveRequestDetail(detail) {
