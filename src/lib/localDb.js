@@ -571,11 +571,30 @@ export async function createCombo(data) {
   const db = await getDb();
   if (!db.data.combos) db.data.combos = [];
 
+  // C-4: Validate non-empty models array
+  if (!data.models || !Array.isArray(data.models) || data.models.length === 0) {
+    throw new Error("Combo must have a non-empty models array");
+  }
+
+  // C-6: Deduplicate models array
+  const uniqueModels = [...new Set(data.models)];
+  if (uniqueModels.length !== data.models.length) {
+    console.warn('[DB] Deduplicated combo models:', data.models.length, '->', uniqueModels.length);
+  }
+
+  // C-5: Check for circular/self-reference (combo cannot reference itself)
+  const comboName = data.name || '';
+  for (const modelRef of uniqueModels) {
+    if (typeof modelRef === 'string' && modelRef === comboName) {
+      throw new Error("Combo cannot reference itself");
+    }
+  }
+
   const now = new Date().toISOString();
   const combo = {
     id: uuidv4(),
     name: data.name,
-    models: data.models || [],
+    models: uniqueModels,
     kind: data.kind || null,
     createdAt: now,
     updatedAt: now,
