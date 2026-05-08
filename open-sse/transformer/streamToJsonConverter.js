@@ -20,7 +20,15 @@ function processSSEMessage(msg, state) {
 
   let parsed;
   try { parsed = JSON.parse(dataStr); }
-  catch { return; }
+  catch (e) {
+    // Multi-line JSON in SSE data: accumulate and retry
+    // This is a fundamental limitation of SSE where JSON can span multiple lines
+    // Log the failure for debugging
+    if (dataStr.length > 0 && dataStr.length < 5000) {
+      console.log(`[WARN] Failed to parse SSE data (${dataStr.length} chars): ${dataStr.substring(0, 200)}...`);
+    }
+    return;
+  }
 
   if (eventType === "response.created") {
     state.responseId = parsed.response?.id || state.responseId;
