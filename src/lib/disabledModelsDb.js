@@ -11,6 +11,8 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const defaultData = { disabled: {} };
 
 let dbInstance = null;
+// Race condition fix: mutex for disableModels
+let modelsMutex = Promise.resolve();
 
 async function getDb() {
   if (!dbInstance) {
@@ -44,24 +46,32 @@ export async function getDisabledByProvider(providerAlias) {
 
 export async function disableModels(providerAlias, ids) {
   if (!providerAlias || !Array.isArray(ids)) return;
-  const db = await getDb();
-  const current = new Set(db.data.disabled[providerAlias] || []);
-  ids.forEach((id) => current.add(id));
-  db.data.disabled[providerAlias] = [...current];
-  await db.write();
+  await modelsMutex;
+  modelsMutex = modelsMutex.then(async () => {
+    const db = await getDb();
+    const current = new Set(db.data.disabled[providerAlias] || []);
+    ids.forEach((id) => current.add(id));
+    db.data.disabled[providerAlias] = [...current];
+    await db.write();
+  });
+  return modelsMutex;
 }
 
 export async function enableModels(providerAlias, ids) {
   if (!providerAlias) return;
-  const db = await getDb();
-  const current = db.data.disabled[providerAlias] || [];
-  if (!Array.isArray(ids) || ids.length === 0) {
-    delete db.data.disabled[providerAlias];
-  } else {
-    const removeSet = new Set(ids);
-    const next = current.filter((id) => !removeSet.has(id));
-    if (next.length === 0) delete db.data.disabled[providerAlias];
-    else db.data.disabled[providerAlias] = next;
-  }
-  await db.write();
+  await modelsMutex;
+  modelsMutex = modelsMutex.then(async () => {
+    const db = await getDb();
+    const current = db.data.disabled[providerAlias] || [];
+    if (!Array.isArray(ids) || ids.length === 0) {
+      delete db.data.disabled[providerAlias];
+    } else {
+      const removeSet = new Set(ids);
+      const next = current.filter((id) => !removeSet.has(id));
+      if (next.length === 0) delete db.data.disabled[providerAlias];
+      else db.data.disabled[providerAlias] = next;
+    }
+    await db.write();
+  });
+  return modelsMutex;
 }
