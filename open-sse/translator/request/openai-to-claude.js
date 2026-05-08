@@ -127,7 +127,7 @@ Respond ONLY with the JSON object, no other text.`);
     const systemText = systemParts.join("\n");
     result.system = [
       claudeCodePrompt,
-      { type: "text", text: systemText, cache_control: { type: "ephemeral", ttl: "1h" } }
+      { type: "text", text: systemText, cache_control: { type: "ephemeral", max_age: 3600 } }
     ];
   } else {
     result.system = [claudeCodePrompt];
@@ -161,7 +161,7 @@ Respond ONLY with the JSON object, no other text.`);
     }
 
     if (result.tools.length > 0) {
-      result.tools[result.tools.length - 1].cache_control = { type: "ephemeral", ttl: "1h" };
+      result.tools[result.tools.length - 1].cache_control = { type: "ephemeral", max_age: 3600 };
     }
   }
 
@@ -184,8 +184,8 @@ Respond ONLY with the JSON object, no other text.`);
   // translate to Claude's native format.
   if (body.reasoning_effort && !result.thinking) {
     const effortToBudget = {
-      none:   0,
-      low:    4096,
+      none:   0,     // Thinking disabled
+      low:    1,     // Minimal thinking
       medium: 8192,
       high:   16384,
       xhigh:  32768,
