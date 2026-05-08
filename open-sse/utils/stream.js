@@ -69,6 +69,9 @@ export function createSSEStream(options = {}) {
       reqLogger?.appendProviderChunk?.(text);
 
       const lines = buffer.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        lines[i] = lines[i].replace(/\r$/, '');
+      }
       buffer = lines.pop() || "";
 
       for (const line of lines) {
