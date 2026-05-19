@@ -174,12 +174,15 @@ function convertClaudeMessage(msg) {
       }
     }
 
+    // Flatten text-only parts to a single string (OpenAI API spec: string is preferred over single-block array)
+    const allText = parts.every(p => p.type === "text");
+    const textContent = allText && parts.length > 0
+      ? parts.map(p => p.text).join("\n")
+      : parts;
+
     // If has tool results, return array of tool messages
     if (toolResults.length > 0) {
-      if (parts.length > 0) {
-        const textContent = parts.length === 1 && parts[0].type === "text" 
-          ? parts[0].text 
-          : parts;
+      if (textContent.length > 0) {
         return [...toolResults, { role: "user", content: textContent }];
       }
       return toolResults;
@@ -188,10 +191,8 @@ function convertClaudeMessage(msg) {
     // If has tool calls, return assistant message with tool_calls
     if (toolCalls.length > 0) {
       const result = { role: "assistant" };
-      if (parts.length > 0) {
-        result.content = parts.length === 1 && parts[0].type === "text" 
-          ? parts[0].text 
-          : parts;
+      if (textContent.length > 0) {
+        result.content = textContent;
       }
       result.tool_calls = toolCalls;
       return result;
@@ -201,7 +202,7 @@ function convertClaudeMessage(msg) {
     if (parts.length > 0) {
       return {
         role,
-        content: parts.length === 1 && parts[0].type === "text" ? parts[0].text : parts
+        content: textContent
       };
     }
     

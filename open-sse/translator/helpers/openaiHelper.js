@@ -42,11 +42,16 @@ export function filterToOpenAIFormat(body) {
         }
       }
       
+      // Flatten text-only content arrays to a single string (OpenAI API spec)
+      if (filteredContent.length > 0 && filteredContent.every(b => b.type === "text")) {
+        return { ...msg, content: filteredContent.map(b => b.text).join("\n") };
+      }
+
       // If all content was filtered, add empty text
       if (filteredContent.length === 0) {
         filteredContent.push({ type: "text", text: "" });
       }
-      
+
       return { ...msg, content: filteredContent };
     }
     
